@@ -44,7 +44,8 @@ const serviceCharacteristics = new Map(
      ["accb552c-8a4b-11ed-a1eb-0242ac120002", "dataReqChar"],     // Data Request	Write
      ["accb5946-8a4b-11ed-a1eb-0242ac120002", "eraseChar"],       // Erase	Write
      ["accb5be4-8a4b-11ed-a1eb-0242ac120002", "usageChar"],       // Usage	Read, Notify
-     ["accb5dd8-8a4b-11ed-a1eb-0242ac120002", "timeChar"]         // Time	Read
+     ["accb5dd8-8a4b-11ed-a1eb-0242ac120002", "timeChar"],        // Time	Read
+     ["accb5f72-8a4b-11ed-a1eb-0242ac120002", "dataReadChar"]     // Data Read
     ]);
 
 
@@ -376,6 +377,26 @@ class uBit extends EventTarget {
         await this.securityChar.startNotifications()
     }
    
+    async readData(start, length) {
+        let dv = new DataView(new ArrayBuffer(4))
+        dv.setUint32(0, start, true)
+        // Request start address
+        await this.dataReadChar.writeValue(dv)
+        
+        let result = await this.dataReadChar.readValue() 
+        let startIndex = result.getUint32(0,true)
+        console.log(`Start index: ${startIndex}`)
+        let text =''
+        for(let i=4;i<result.byteLength;i++) {
+            let val = result.getUint8(i)
+            if(val!=0) {
+                text += String.fromCharCode(val)
+            }
+        }
+        console.log(text)
+        return text
+    }
+
     /**
      * Callback of actions to do when authorized
      * @private
@@ -389,16 +410,16 @@ class uBit extends EventTarget {
         // Compute the date/time that the micro:bit started in seconds since epoch start (as N.NN s)
         this.mbRebootTime = Date.now() - msTime  
 
-        this.dataChar.addEventListener('characteristicvaluechanged', this.onData)
-        await this.dataChar.startNotifications()
+        // this.dataChar.addEventListener('characteristicvaluechanged', this.onData)
+        // await this.dataChar.startNotifications()
 
         this.usageChar.addEventListener('characteristicvaluechanged', this.onUsage)
         await this.usageChar.startNotifications()
 
         // Enabling notifications will get current length;
         // Getting current length will retrieve all "new" data since last retrieve
-        this.dataLenChar.addEventListener('characteristicvaluechanged', this.onDataLength)
-        await this.dataLenChar.startNotifications()        
+        // this.dataLenChar.addEventListener('characteristicvaluechanged', this.onDataLength)
+        // await this.dataLenChar.startNotifications()        
     }
        
     /**
@@ -797,6 +818,7 @@ class uBit extends EventTarget {
         this.eraseChar = null 
         this.usageChar = null
         this.timeChar = null
+        this.dataReadChar = null
         // Update data to reflect what we actually have
         this.dataLength = Math.max(0, (this.rawData.length-1)*16)
 

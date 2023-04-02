@@ -21,7 +21,10 @@ const serviceCharacteristics = new Map(
      ["accb552c-8a4b-11ed-a1eb-0242ac120002", "dataReqChar"],     // Data Request	Write
      ["accb5946-8a4b-11ed-a1eb-0242ac120002", "eraseChar"],       // Erase	Write
      ["accb5be4-8a4b-11ed-a1eb-0242ac120002", "usageChar"],       // Usage	Read, Notify
-     ["accb5dd8-8a4b-11ed-a1eb-0242ac120002", "timeChar"]         // Time	Read
+     ["accb5dd8-8a4b-11ed-a1eb-0242ac120002", "timeChar"],        // Time	Read
+
+     ["accb5f72-8a4b-11ed-a1eb-0242ac120002", "longReadChar"],    // Long Data Read: Read
+     ["accb613e-8a4b-11ed-a1eb-0242ac120002", "longReadSetChar"]  // Long Data Read Set: Write, Notify
     ]);
 
 
@@ -99,6 +102,7 @@ class uBit extends EventTarget {
         this.onData = this.onData.bind(this)
         this.onUsage = this.onUsage.bind(this)
         this.onDisconnect = this.onDisconnect.bind(this)
+        this.onDataReadSet = this.onDataReadSet.bind(this)
 
         // Bind timeout callbacks
         this.onDataTimeout = this.onDataTimeout.bind(this)
@@ -274,6 +278,25 @@ class uBit extends EventTarget {
         }
     }
 
+
+    /**
+     * Do a BLE request for the data 
+     * @param {int} start byte address
+     * @private
+     */
+    async requestData(start, lenth) {
+        // console.log(`requestData: Requesting @ ${start} `)
+
+        // PERFORMANCE TESTING
+        this.dataRequestStart = Date.now()
+
+        if(this.device && this.device.gatt && this.device.gatt.connected) {
+            let dv = new DataView(new ArrayBuffer(4))
+            dv.setUint32(0, start, true)
+            await this.longReadSetChar.writeValue(dv)
+        }
+    }
+
     /**
      * Notify of progress in retrieving large block of data
      * @param {int} progress Progress of the task (0-100) 
@@ -417,11 +440,16 @@ class uBit extends EventTarget {
         this.usageChar.addEventListener('characteristicvaluechanged', this.onUsage)
         await this.usageChar.startNotifications()
 
+        this.longReadSetChar.addEventListener('characteristicvaluechanged', this.onDataReadSet)
+        await this.longReadSetChar.startNotifications()
+
+
         // Enabling notifications will get current length;
         // Getting current length will retrieve all "new" data since last retrieve
         this.dataLenChar.addEventListener('characteristicvaluechanged', this.onDataLength)
         await this.dataLenChar.startNotifications()        
     }
+
 
     /**
      * Remove this device
@@ -433,6 +461,7 @@ class uBit extends EventTarget {
         this.dataChar && this.dataChar.removeEventListener('characteristicvaluechanged', this.onData)
         this.dataLenChar && this.dataLenChar.removeEventListener('characteristicvaluechanged', this.onDataLength)
         this.usageChar && this.usageChar.removeEventListener('characteristicvaluechanged', this.onUsage)
+        this.longReadSetChar && this.longReadSetChar.removeEventListener('characteristicvaluechanged', this.onDataReadSet)
         this.securityChar && this.securityChar.removeEventListener('characteristicvaluechanged', this.onSecurity)        
         // If connected, disconnect
         this.device && this.device.gatt.connected && this.device.gatt.disconnect()
@@ -839,6 +868,43 @@ class uBit extends EventTarget {
     }
 
     /**
+     * Process an update on the BLE data read set characteristics
+     * 
+     * @param {event} event The BLE event data read has been set and is ready
+     * @private
+     */
+    async onDataReadSet(event) {
+        console.log("Data read set")
+        let value = event.target.value.getUint32(0, true)
+        let dv = await this.longReadChar.readValue() 
+        dv = await this.longReadChar.readValue() 
+        dv = await this.longReadChar.readValue() 
+        dv = await this.longReadChar.readValue() 
+        dv = await this.longReadChar.readValue() 
+        let now = Date.now() 
+
+        let elapsed = (now - this.dataRequestStart)/1000
+        //console.dir(dv)
+      // // PERFORMANCE CHECKING
+      // this.dataTransferred += dv.byteLength
+
+        if(dv.byteLength>=4) {
+            let index = dv.getUint32(0,true)
+            
+            let text =''
+            for(let i=4;i<dv.byteLength;i++) {
+                let val = dv.getUint8(i)
+                if(val!=0) {
+                    text += String.fromCharCode(val)
+                }
+            }
+            console.log(`Time: ${elapsed}S Size: ${5*dv.byteLength} Rate: ${5*dv.byteLength/elapsed}`)
+            console.log(`Data read: ${text}`)
+        }
+    }
+
+
+    /**
      * Process an update on the BLE usage characteristics
      * 
      * @param {event} event The BLE event useage data
@@ -899,6 +965,8 @@ class uBit extends EventTarget {
         this.eraseChar = null 
         this.usageChar = null
         this.timeChar = null
+        this.longReadChar = null
+        this.longReadSetChar = null
         // Update data to reflect what we actually have
         this.dataLength = Math.max(0, (this.rawData.length-1)*16)
 
